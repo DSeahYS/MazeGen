@@ -15,9 +15,9 @@ An advanced maze generator and solver with beautiful visualizations and multiple
 - Export to PNG or TXT formats
 
 ## How to Run
+Run the Python file and explore :)
 
-```python
-python maze_ui.py
+## Demonstration
 ![image](https://github.com/user-attachments/assets/c22a4af9-984d-4e99-9626-49600cb4e857)
 ![image](https://github.com/user-attachments/assets/eb48dfe3-6417-48a2-8742-e04a0caad8b9)
-![Uploading image.png…]()
+![image](https://github.com/user-attachments/assets/af992eab-3e1b-4444-8915-62661b4888af)
