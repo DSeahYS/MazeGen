@@ -1,12 +1,14 @@
+#!/usr/bin/env python3
 """
 Magnificent Maze Generator - A visually stunning maze generator and solver
-with high-complexity algorithms and beautiful visualization.
+with high-complexity algorithms, beautiful visualization, and custom path drawing.
 
-This single-file implementation includes:
+This implementation includes:
 - Multiple algorithms optimized for maximum complexity
 - Beautiful animated maze generation and solving
 - Various visual themes with gradient effects
 - Interactive controls for all parameters
+- User-drawn path feature for custom maze design
 - Zoom and pan capabilities
 - Export functionality
 """
@@ -42,6 +44,7 @@ class MazeAlgorithm(Enum):
     ELLERS = "Eller's Algorithm"
     BACKTRACKER = "Recursive Backtracker"
     HYBRID = "Hybrid Algorithm"
+    CUSTOM_PATH = "Custom Path Algorithm"
 
 
 class BaseMaze:
@@ -391,14 +394,214 @@ class HybridMaze(BaseMaze):
                     self.maze[2*y+1][2*x+1] = ' '
 
 
+class CustomPathMaze(BaseMaze):
+    """
+    Custom Path Maze generator that builds a maze around a user-drawn path.
+    The user path becomes the backbone of the maze, and the algorithm fills
+    in the rest of the maze around it.
+    """
+    
+    def __init__(self, width: int, height: int, user_path: List[Tuple[int, int]], density: float = 0.6):
+        """Initialize the custom path maze generator."""
+        super().__init__(width, height)
+        self.user_path = user_path
+        self.density = density
+        
+    def generate(self) -> List[List[str]]:
+        """Generate maze around the user-drawn path."""
+        start_time = time.time()
+        
+        # Initialize with a grid of all walls
+        self.maze = [['#' for _ in range(self.maze_width)] for _ in range(self.maze_height)]
+        self.generation_steps = []
+        
+        # Make all cells in grid
+        for y in range(self.height):
+            for x in range(self.width):
+                self.maze[2*y+1][2*x+1] = ' '
+        
+        # Save initial state
+        self.generation_steps.append([row[:] for row in self.maze])
+        
+        # First, create the user path
+        if self.user_path and len(self.user_path) > 1:
+            self._carve_user_path()
+        
+        # Next, use recursive backtracker to fill the rest of the maze
+        self._fill_remaining_maze()
+        
+        # Ensure entrance and exit
+        self.create_entrance_exit()
+        
+        # Save final state
+        self.generation_steps.append([row[:] for row in self.maze])
+        
+        self.generation_time = time.time() - start_time
+        return self.maze
+    
+    def _carve_user_path(self) -> None:
+        """Carve the user-drawn path in the maze."""
+        # Highlight the path cells
+        path_maze = [row[:] for row in self.maze]
+        for x, y in self.user_path:
+            path_maze[2*y+1][2*x+1] = 'P'  # Mark path cell
+        self.generation_steps.append(path_maze)
+        
+        # Carve passages between adjacent path cells
+        for i in range(len(self.user_path) - 1):
+            x1, y1 = self.user_path[i]
+            x2, y2 = self.user_path[i+1]
+            
+            # Check if cells are adjacent
+            if abs(x1 - x2) + abs(y1 - y2) == 1:
+                # Cells are adjacent, remove the wall between them
+                wall_x = x1 + (x2 - x1) // 2
+                wall_y = y1 + (y2 - y1) // 2
+                self.maze[2*wall_y+1][2*wall_x+1] = ' '
+                
+                # For diagonal cells, we need to choose which wall to remove
+                # This is a simplified approach; we just make a direct connection
+            else:
+                # For non-adjacent cells, find a path between them
+                self._connect_nonadjacent_cells(x1, y1, x2, y2)
+            
+            # Save state after carving each connection
+            path_maze = [row[:] for row in self.maze]
+            for x, y in self.user_path:
+                path_maze[2*y+1][2*x+1] = 'P'  # Mark path cell
+            self.generation_steps.append(path_maze)
+    
+    def _connect_nonadjacent_cells(self, x1: int, y1: int, x2: int, y2: int) -> None:
+        """Connect two non-adjacent cells with a path."""
+        # Use a simple approach: move horizontally, then vertically
+        x, y = x1, y1
+        
+        # Move horizontally
+        while x != x2:
+            nx = x + (1 if x < x2 else -1)
+            # Remove the wall between cells
+            wall_x = x + (nx - x) // 2
+            self.maze[2*y+1][2*wall_x+2] = ' '
+            x = nx
+        
+        # Move vertically
+        while y != y2:
+            ny = y + (1 if y < y2 else -1)
+            # Remove the wall between cells
+            wall_y = y + (ny - y) // 2
+            self.maze[2*wall_y+2][2*x+1] = ' '
+            y = ny
+    
+    def _fill_remaining_maze(self) -> None:
+        """Fill the rest of the maze using Recursive Backtracker algorithm."""
+        # Mark all cells that are part of the user path as visited
+        visited = set(self.user_path)
+        
+        # Keep track of the frontier - cells adjacent to the path
+        frontier = set()
+        for x, y in visited:
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.width and 0 <= ny < self.height and 
+                    (nx, ny) not in visited):
+                    frontier.add((nx, ny))
+        
+        # Process frontier cells
+        while frontier:
+            # Choose a random frontier cell
+            x, y = random.choice(list(frontier))
+            frontier.remove((x, y))
+            visited.add((x, y))
+            
+            # Find neighbors that are already in the maze
+            neighbors = []
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.width and 0 <= ny < self.height and 
+                    (nx, ny) in visited):
+                    neighbors.append((nx, ny, dx, dy))
+            
+            # Connect to a random neighbor that's already in the maze
+            if neighbors:
+                nx, ny, dx, dy = random.choice(neighbors)
+                # Remove the wall between cells
+                self.maze[2*y+1+dy//2][2*x+1+dx//2] = ' '
+                
+                # Mark for visualization
+                current_maze = [row[:] for row in self.maze]
+                current_maze[2*y+1][2*x+1] = 'C'  # Mark current cell
+                self.generation_steps.append(current_maze)
+            
+            # Add new frontier cells
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.width and 0 <= ny < self.height and 
+                    (nx, ny) not in visited and (nx, ny) not in frontier):
+                    frontier.add((nx, ny))
+        
+        # Fill any remaining cells using recursive backtracker
+        self._fill_isolated_cells(visited)
+    
+    def _fill_isolated_cells(self, visited: Set[Tuple[int, int]]) -> None:
+        """Fill any isolated cells that weren't reached yet."""
+        for y in range(self.height):
+            for x in range(self.width):
+                if (x, y) not in visited:
+                    # Use a mini recursive backtracker to fill this region
+                    stack = [(x, y)]
+                    region_visited = {(x, y)}
+                    
+                    while stack:
+                        cx, cy = stack[-1]
+                        
+                        # Find unvisited neighbors within this isolated region
+                        neighbors = []
+                        for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                            nx, ny = cx + dx, cy + dy
+                            if (0 <= nx < self.width and 0 <= ny < self.height and 
+                                (nx, ny) not in visited and (nx, ny) not in region_visited):
+                                neighbors.append((nx, ny, dx, dy))
+                        
+                        if neighbors:
+                            nx, ny, dx, dy = random.choice(neighbors)
+                            # Remove wall between cells
+                            self.maze[2*cy+1+dy//2][2*cx+1+dx//2] = ' '
+                            stack.append((nx, ny))
+                            region_visited.add((nx, ny))
+                        else:
+                            stack.pop()
+                    
+                    # Connect this region to the main maze
+                    edge_cells = []
+                    for rx, ry in region_visited:
+                        for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                            nx, ny = rx + dx, ry + dy
+                            if (0 <= nx < self.width and 0 <= ny < self.height and 
+                                (nx, ny) in visited):
+                                edge_cells.append((rx, ry, nx, ny))
+                    
+                    if edge_cells:
+                        rx, ry, nx, ny = random.choice(edge_cells)
+                        # Remove wall between the region and the main maze
+                        wall_x = rx + (nx - rx) // 2
+                        wall_y = ry + (ny - ry) // 2
+                        self.maze[2*wall_y+1][2*wall_x+1] = ' '
+                    
+                    # Update visited cells
+                    visited.update(region_visited)
+
+
 def create_maze(width: int, height: int, algorithm: MazeAlgorithm, 
-                density: float = 0.5, section_size: int = 5) -> BaseMaze:
+                density: float = 0.5, section_size: int = 5,
+                user_path: List[Tuple[int, int]] = None) -> BaseMaze:
     """Create a maze with the specified algorithm and parameters."""
     if algorithm == MazeAlgorithm.ELLERS:
         generator = EllerMaze(width, height, density)
     elif algorithm == MazeAlgorithm.BACKTRACKER:
         generator = RecursiveBacktracker(width, height)
-    else:  # Hybrid (default)
+    elif algorithm == MazeAlgorithm.CUSTOM_PATH and user_path:
+        generator = CustomPathMaze(width, height, user_path, density)
+    else:  # Hybrid (default) or any other case
         generator = HybridMaze(width, height, density, section_size)
     
     generator.generate()
@@ -580,6 +783,8 @@ class MazeTheme:
             "button_hover": (90, 90, 150),
             "slider": (70, 70, 120),
             "slider_handle": (150, 150, 200),
+            "user_path": (255, 140, 0),  # Bright orange for user-drawn path
+            "user_path_highlight": (255, 215, 0),  # Gold highlight for user path nodes
         },
         "Forest": {
             "background": (10, 30, 15),
@@ -596,6 +801,8 @@ class MazeTheme:
             "button_hover": (60, 100, 60),
             "slider": (40, 80, 40),
             "slider_handle": (100, 170, 100),
+            "user_path": (255, 140, 0),  # Bright orange for user-drawn path
+            "user_path_highlight": (255, 215, 0),  # Gold highlight for user path nodes
         },
         "Volcano": {
             "background": (20, 10, 5),
@@ -612,6 +819,8 @@ class MazeTheme:
             "button_hover": (130, 60, 60),
             "slider": (100, 40, 40),
             "slider_handle": (180, 100, 100),
+            "user_path": (0, 191, 255),  # Bright blue for user-drawn path in volcano theme
+            "user_path_highlight": (30, 144, 255),  # Blue highlight for user path nodes
         },
         "Neon": {
             "background": (5, 5, 5),
@@ -628,6 +837,8 @@ class MazeTheme:
             "button_hover": (0, 130, 130),
             "slider": (0, 100, 100),
             "slider_handle": (0, 200, 200),
+            "user_path": (255, 215, 0),  # Gold for user-drawn path in neon theme
+            "user_path_highlight": (255, 255, 0),  # Yellow highlight for user path nodes
         },
         "Monochrome": {
             "background": (5, 5, 5),
@@ -644,6 +855,8 @@ class MazeTheme:
             "button_hover": (90, 90, 90),
             "slider": (70, 70, 70),
             "slider_handle": (150, 150, 150),
+            "user_path": (180, 180, 180),  # Light gray for user-drawn path
+            "user_path_highlight": (255, 255, 255),  # White highlight for user path nodes
         }
     }
     
@@ -711,6 +924,11 @@ class MazeUI:
         self.solution = []
         self.solving_steps = []
         
+        # Path drawing mode
+        self.drawing_mode = False
+        self.user_path = []
+        self.last_drawn_point = None
+        
         # UI elements
         self.buttons = []
         self.sliders = []
@@ -750,6 +968,14 @@ class MazeUI:
         y_offset += 40
         self.add_button("Hybrid Algorithm", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
                         lambda: self.set_algorithm(MazeAlgorithm.HYBRID))
+        y_offset += 40
+        self.add_button("Custom Path Algorithm", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        lambda: self.set_algorithm(MazeAlgorithm.CUSTOM_PATH))
+        y_offset += 50
+        
+        # Draw Path Mode button
+        self.add_button("Enter Draw Path Mode", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 40,
+                        self.toggle_drawing_mode)
         y_offset += 50
         
         # Maze dimensions
@@ -849,14 +1075,28 @@ class MazeUI:
         """Set the maze generation algorithm."""
         self.algorithm = algorithm
         self.update_status(f"Algorithm set to {algorithm.value}")
+        
+        # If setting to custom path but no path exists, enter drawing mode
+        if algorithm == MazeAlgorithm.CUSTOM_PATH and not self.user_path:
+            self.toggle_drawing_mode()
     
     def set_maze_width(self, width: int) -> None:
         """Set the maze width."""
         self.maze_width = max(10, min(100, width))
+        
+        # Clear user path when dimensions change
+        if self.user_path:
+            self.user_path = []
+            self._redraw_maze()
     
     def set_maze_height(self, height: int) -> None:
         """Set the maze height."""
         self.maze_height = max(10, min(100, height))
+        
+        # Clear user path when dimensions change
+        if self.user_path:
+            self.user_path = []
+            self._redraw_maze()
     
     def set_density(self, density: float) -> None:
         """Set the connection density."""
@@ -906,9 +1146,41 @@ class MazeUI:
         self.cell_size = DEFAULT_CELL_SIZE
         self._redraw_maze()
     
+    def toggle_drawing_mode(self) -> None:
+        """Toggle the path drawing mode."""
+        if self.generating or self.solving:
+            return
+        
+        self.drawing_mode = not self.drawing_mode
+        
+        if self.drawing_mode:
+            # Enter drawing mode
+            self.user_path = []
+            self.last_drawn_point = None
+            self.update_status("Draw Path Mode: Click and drag to create a path. Press Enter when done, Escape to cancel.")
+            
+            # Auto-select the custom path algorithm
+            self.algorithm = MazeAlgorithm.CUSTOM_PATH
+            
+            # Create grid for drawing
+            self._prepare_drawing_grid()
+        else:
+            # Exit drawing mode
+            if not self.user_path:
+                self.update_status("Drawing canceled. No path was created.")
+            else:
+                self.update_status(f"Path created with {len(self.user_path)} points. Generate maze to apply.")
+    
+    def _prepare_drawing_grid(self) -> None:
+        """Prepare a grid for path drawing."""
+        # Create a blank grid for drawing
+        self.maze = None
+        self.maze_surface = None
+        self._redraw_maze(draw_grid=True)
+    
     def _constrain_offset(self) -> None:
         """Constrain the offset to keep the maze in view."""
-        if not self.maze:
+        if not self.maze and not self.drawing_mode:
             return
         
         # Calculate bounds
@@ -925,15 +1197,86 @@ class MazeUI:
         max_y = max(maze_pixel_height - self.screen_height / self.cell_size + 5, min_y)
         self.offset_y = max(min_y, min(self.offset_y, max_y))
     
+    def handle_path_drawing(self, mouse_pos: Tuple[int, int]) -> None:
+        """Handle drawing a path with the mouse."""
+        if not self.drawing_mode:
+            return
+        
+        # Convert mouse position to grid coordinates
+        grid_x = int((mouse_pos[0] / self.cell_size + self.offset_x) / 2)
+        grid_y = int((mouse_pos[1] / self.cell_size + self.offset_y) / 2)
+        
+        # Ensure coordinates are within bounds
+        if not (0 <= grid_x < self.maze_width and 0 <= grid_y < self.maze_height):
+            return
+        
+        current_point = (grid_x, grid_y)
+        
+        # If this is a new point, add it to the path
+        if current_point != self.last_drawn_point:
+            # If there's a previous point, make sure they're adjacent
+            if self.last_drawn_point:
+                prev_x, prev_y = self.last_drawn_point
+                
+                # If points are not adjacent, create intermediate points to make a continuous path
+                dx = grid_x - prev_x
+                dy = grid_y - prev_y
+                
+                # Manhattan distance
+                manhattan_dist = abs(dx) + abs(dy)
+                
+                if manhattan_dist > 1:
+                    # Create a path of intermediate points
+                    steps_x = abs(dx)
+                    steps_y = abs(dy)
+                    
+                    # First move horizontally, then vertically
+                    x, y = prev_x, prev_y
+                    
+                    # Move along X
+                    step_x = 1 if dx > 0 else -1 if dx < 0 else 0
+                    for _ in range(steps_x):
+                        x += step_x
+                        intermediate_point = (x, y)
+                        if intermediate_point not in self.user_path:
+                            self.user_path.append(intermediate_point)
+                    
+                    # Move along Y
+                    step_y = 1 if dy > 0 else -1 if dy < 0 else 0
+                    for _ in range(steps_y):
+                        y += step_y
+                        intermediate_point = (x, y)
+                        if intermediate_point not in self.user_path:
+                            self.user_path.append(intermediate_point)
+                else:
+                    # Points are adjacent, just add the new point
+                    if current_point not in self.user_path:
+                        self.user_path.append(current_point)
+            else:
+                # First point in the path
+                self.user_path.append(current_point)
+            
+            self.last_drawn_point = current_point
+            self._redraw_maze(draw_grid=True)
+    
     def generate_maze(self) -> None:
         """Generate a new maze."""
         if self.generating or self.solving:
             return
         
+        if self.drawing_mode:
+            self.toggle_drawing_mode()  # Exit drawing mode
+        
         self.update_status("Generating maze...")
         self.generating = True
         self.show_solution = False
         self.current_step = 0
+        
+        # Create the maze based on the selected algorithm
+        if self.algorithm == MazeAlgorithm.CUSTOM_PATH and not self.user_path:
+            self.update_status("No custom path drawn. Please enter drawing mode first.")
+            self.generating = False
+            return
         
         # Create the maze
         self.maze = create_maze(
@@ -941,7 +1284,8 @@ class MazeUI:
             self.maze_height, 
             self.algorithm,
             self.density,
-            self.section_size
+            self.section_size,
+            self.user_path if self.algorithm == MazeAlgorithm.CUSTOM_PATH else None
         )
         
         # Store generation steps for animation
@@ -1079,18 +1423,24 @@ class MazeUI:
                 for button in self.buttons:
                     button["hover"] = button["rect"].collidepoint(event.pos)
                 
+                # Handle path drawing
+                if self.drawing_mode and pygame.mouse.get_pressed()[0]:
+                    canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+                    if canvas_rect.collidepoint(event.pos):
+                        self.handle_path_drawing(event.pos)
+                
                 # Handle dragging for pan
-                if self.dragging:
+                elif self.dragging:
                     dx = (event.pos[0] - self.drag_start[0]) / self.cell_size
                     dy = (event.pos[1] - self.drag_start[1]) / self.cell_size
                     self.offset_x -= dx
                     self.offset_y -= dy
                     self.drag_start = event.pos
                     self._constrain_offset()
-                    self._redraw_maze()
+                    self._redraw_maze(draw_grid=self.drawing_mode)
                 
                 # Handle slider dragging
-                if self.active_element and "min" in self.active_element:
+                elif self.active_element and "min" in self.active_element:
                     slider = self.active_element
                     # Calculate value based on mouse position
                     slider_width = slider["rect"].width - 20  # Subtract handle width
@@ -1106,34 +1456,48 @@ class MazeUI:
             
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
+                    # Check for UI interactions first
+                    ui_handled = False
+                    
                     # Check for button clicks
                     for button in self.buttons:
                         if button["rect"].collidepoint(event.pos):
                             button["action"]()
+                            ui_handled = True
                             break
                     
                     # Check for slider interaction
-                    for slider in self.sliders:
-                        if slider["handle_rect"].collidepoint(event.pos) or slider["rect"].collidepoint(event.pos):
-                            self.active_element = slider
-                            slider["active"] = True
-                            
-                            # Update slider position immediately
-                            slider_width = slider["rect"].width - 20
-                            relative_x = max(0, min(slider_width, event.pos[0] - slider["rect"].x))
-                            value = slider["min"] + (relative_x / slider_width) * (slider["max"] - slider["min"])
-                            
-                            slider["value"] = value
-                            slider["handle_rect"].x = slider["rect"].x + relative_x
-                            
-                            slider["action"](value)
-                            break
+                    if not ui_handled:
+                        for slider in self.sliders:
+                            if slider["handle_rect"].collidepoint(event.pos) or slider["rect"].collidepoint(event.pos):
+                                self.active_element = slider
+                                slider["active"] = True
+                                
+                                # Update slider position immediately
+                                slider_width = slider["rect"].width - 20
+                                relative_x = max(0, min(slider_width, event.pos[0] - slider["rect"].x))
+                                value = slider["min"] + (relative_x / slider_width) * (slider["max"] - slider["min"])
+                                
+                                slider["value"] = value
+                                slider["handle_rect"].x = slider["rect"].x + relative_x
+                                
+                                slider["action"](value)
+                                ui_handled = True
+                                break
                     
-                    # Handle dragging for pan (if not on UI element)
-                    canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
-                    if canvas_rect.collidepoint(event.pos) and not self.active_element:
-                        self.dragging = True
-                        self.drag_start = event.pos
+                    # Handle path drawing
+                    if not ui_handled and self.drawing_mode:
+                        canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+                        if canvas_rect.collidepoint(event.pos):
+                            self.handle_path_drawing(event.pos)
+                            ui_handled = True
+                    
+                    # Handle dragging for pan (if not on UI element and not drawing)
+                    if not ui_handled and not self.drawing_mode:
+                        canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+                        if canvas_rect.collidepoint(event.pos):
+                            self.dragging = True
+                            self.drag_start = event.pos
                 
                 elif event.button == 4:  # Mouse wheel up (zoom in)
                     self.set_cell_size(self.cell_size + 2)
@@ -1151,7 +1515,19 @@ class MazeUI:
             
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    return False
+                    if self.drawing_mode:
+                        # Cancel drawing mode
+                        self.drawing_mode = False
+                        self.user_path = []
+                        self.update_status("Path drawing canceled.")
+                        self._redraw_maze()
+                    else:
+                        return False
+                
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                    if self.drawing_mode:
+                        # Finish drawing mode
+                        self.toggle_drawing_mode()
                 
                 elif event.key == pygame.K_g:
                     self.generate_maze()
@@ -1168,43 +1544,55 @@ class MazeUI:
                 elif event.key == pygame.K_MINUS:
                     self.set_cell_size(self.cell_size - 2)
                 
+                elif event.key == pygame.K_c:
+                    if not self.generating and not self.solving:
+                        # Clear the user path
+                        self.user_path = []
+                        self._redraw_maze(draw_grid=self.drawing_mode)
+                        self.update_status("User path cleared.")
+                
                 elif event.key in [pygame.K_UP, pygame.K_w]:
                     self.offset_y -= 5
                     self._constrain_offset()
-                    self._redraw_maze()
+                    self._redraw_maze(draw_grid=self.drawing_mode)
                 
                 elif event.key in [pygame.K_DOWN, pygame.K_s]:
                     self.offset_y += 5
                     self._constrain_offset()
-                    self._redraw_maze()
+                    self._redraw_maze(draw_grid=self.drawing_mode)
                 
                 elif event.key in [pygame.K_LEFT, pygame.K_a]:
                     self.offset_x -= 5
                     self._constrain_offset()
-                    self._redraw_maze()
+                    self._redraw_maze(draw_grid=self.drawing_mode)
                 
                 elif event.key in [pygame.K_RIGHT, pygame.K_d]:
                     self.offset_x += 5
                     self._constrain_offset()
-                    self._redraw_maze()
+                    self._redraw_maze(draw_grid=self.drawing_mode)
         
         return True
     
-    def _redraw_maze(self) -> None:
+    def _redraw_maze(self, draw_grid: bool = False) -> None:
         """Redraw the maze surface."""
-        if not self.maze:
-            return
-        
         # Create a new surface
         self.maze_surface = pygame.Surface((self.screen_width - SIDEBAR_WIDTH, self.screen_height))
         self.maze_surface.fill(self.theme["background"])
         
-        # Draw the maze
-        self._draw_maze(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
-        
-        # Draw solution if shown
-        if self.show_solution and self.solution:
-            self._draw_solution(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+        if draw_grid:
+            # Draw the grid for path drawing
+            self._draw_grid(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+            
+            # Draw the user path
+            if self.user_path:
+                self._draw_user_path(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+        elif self.maze:
+            # Draw the maze
+            self._draw_maze(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+            
+            # Draw solution if shown
+            if self.show_solution and self.solution:
+                self._draw_solution(self.maze_surface, 0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
     
     def _get_gradient_color(self, colors: List[Tuple[int, int, int]], position: float) -> Tuple[int, int, int]:
         """Get a color from a gradient based on position (0-1)."""
@@ -1229,6 +1617,67 @@ class MazeUI:
         b = int(color1[2] + segment_position * (color2[2] - color1[2]))
         
         return (r, g, b)
+    
+    def _draw_grid(self, surface: pygame.Surface, x: int, y: int, width: int, height: int) -> None:
+        """Draw a grid for path drawing."""
+        # Calculate grid boundaries
+        start_x = max(0, int(self.offset_x))
+        start_y = max(0, int(self.offset_y))
+        
+        end_x = min(self.maze_width, int(self.offset_x + width / self.cell_size / 2 + 1))
+        end_y = min(self.maze_height, int(self.offset_y + height / self.cell_size / 2 + 1))
+        
+        # Draw grid cells
+        for grid_y in range(start_y, end_y):
+            for grid_x in range(start_x, end_x):
+                cell_x = int((grid_x * 2 - self.offset_x) * self.cell_size)
+                cell_y = int((grid_y * 2 - self.offset_y) * self.cell_size)
+                
+                # Draw cell background
+                cell_color = self.theme["cell"][0]
+                pygame.draw.rect(surface, cell_color, 
+                               (cell_x, cell_y, self.cell_size * 2, self.cell_size * 2))
+                
+                # Draw cell border
+                border_color = (50, 50, 50)  # Subtle grid lines
+                pygame.draw.rect(surface, border_color, 
+                               (cell_x, cell_y, self.cell_size * 2, self.cell_size * 2), 1)
+    
+    def _draw_user_path(self, surface: pygame.Surface, x: int, y: int, width: int, height: int) -> None:
+        """Draw the user-drawn path on the surface."""
+        if not self.user_path:
+            return
+        
+        # Draw lines connecting the path points
+        for i in range(len(self.user_path) - 1):
+            x1, y1 = self.user_path[i]
+            x2, y2 = self.user_path[i+1]
+            
+            # Calculate screen positions
+            screen_x1 = int((x1 * 2 - self.offset_x) * self.cell_size + self.cell_size)
+            screen_y1 = int((y1 * 2 - self.offset_y) * self.cell_size + self.cell_size)
+            screen_x2 = int((x2 * 2 - self.offset_x) * self.cell_size + self.cell_size)
+            screen_y2 = int((y2 * 2 - self.offset_y) * self.cell_size + self.cell_size)
+            
+            # Draw line with path color
+            line_width = max(2, self.cell_size // 3)
+            pygame.draw.line(surface, self.theme["user_path"], 
+                           (screen_x1, screen_y1), (screen_x2, screen_y2), line_width)
+        
+        # Draw nodes for each point in the path
+        for i, (px, py) in enumerate(self.user_path):
+            screen_x = int((px * 2 - self.offset_x) * self.cell_size + self.cell_size)
+            screen_y = int((py * 2 - self.offset_y) * self.cell_size + self.cell_size)
+            
+            # Different color for start and end points
+            if i == 0 or i == len(self.user_path) - 1:
+                node_color = self.theme["user_path_highlight"]
+                node_size = max(3, self.cell_size // 2)
+            else:
+                node_color = self.theme["user_path"]
+                node_size = max(2, self.cell_size // 3)
+            
+            pygame.draw.circle(surface, node_color, (screen_x, screen_y), node_size)
     
     def _draw_maze(self, surface: pygame.Surface, x: int, y: int, width: int, height: int) -> None:
         """Draw the maze on the given surface."""
@@ -1307,6 +1756,11 @@ class MazeUI:
                         color = self._get_gradient_color(self.theme["cell"], gradient_pos)
                     
                     pygame.draw.rect(surface, color, 
+                                   (cell_x, cell_y, self.cell_size, self.cell_size))
+                
+                # Cell is part of user path visualization
+                elif cell_type == 'P':
+                    pygame.draw.rect(surface, self.theme["user_path"], 
                                    (cell_x, cell_y, self.cell_size, self.cell_size))
                 
                 # Cell is marked for visualization (current cell in generation)
@@ -1408,12 +1862,19 @@ class MazeUI:
         
         # Draw buttons
         for button in self.buttons:
-            color = self.theme["button_hover"] if button["hover"] else self.theme["button"]
+            # Special handling for Draw Path Mode button
+            if button["text"] == "Enter Draw Path Mode" and self.drawing_mode:
+                text = "Exit Draw Path Mode"
+                color = (150, 50, 50) if button["hover"] else (120, 30, 30)
+            else:
+                text = button["text"]
+                color = self.theme["button_hover"] if button["hover"] else self.theme["button"]
+            
             pygame.draw.rect(self.screen, color, button["rect"], border_radius=5)
             pygame.draw.rect(self.screen, self.theme["text"], button["rect"], width=1, border_radius=5)
             
             # Draw button text
-            text_surf = self.font.render(button["text"], True, self.theme["text"])
+            text_surf = self.font.render(text, True, self.theme["text"])
             text_rect = text_surf.get_rect(center=button["rect"].center)
             self.screen.blit(text_surf, text_rect)
         
@@ -1445,6 +1906,39 @@ class MazeUI:
         algo_rect = pygame.Rect(sidebar_rect.left + 10, 15, SIDEBAR_WIDTH - 20, 20)
         self.screen.blit(algo_surf, algo_rect)
         
+        # Draw current mode (normal or path drawing)
+        if hasattr(self, 'drawing_mode') and self.drawing_mode:
+            mode_text = "MODE: DRAWING PATH"
+            mode_color = (255, 100, 100)  # Red-ish color to indicate drawing mode
+        else:
+            mode_text = "MODE: NORMAL"
+            mode_color = self.theme["text"]
+            
+        mode_surf = self.font_large.render(mode_text, True, mode_color)
+        mode_rect = mode_surf.get_rect(topright=(self.screen_width - 10, 10))
+        self.screen.blit(mode_surf, mode_rect)
+        
+        # Draw path instructions if in drawing mode
+        if hasattr(self, 'drawing_mode') and self.drawing_mode:
+            instructions = [
+                "Click and drag to draw your path",
+                "Path must connect entrance to exit",
+                "Press Enter to generate maze from path",
+                "Press Escape to cancel"
+            ]
+            
+            for i, line in enumerate(instructions):
+                instr_surf = self.font.render(line, True, mode_color)
+                instr_rect = instr_surf.get_rect(topright=(self.screen_width - 10, 40 + i * 25))
+                
+                # Add a semi-transparent background for better readability
+                bg_rect = instr_rect.inflate(10, 6)
+                bg_surf = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+                bg_surf.fill((0, 0, 0, 150))
+                self.screen.blit(bg_surf, bg_rect)
+                
+                self.screen.blit(instr_surf, instr_rect)
+        
         # Draw status
         if hasattr(self, 'status_message'):
             # Split message into lines
@@ -1470,10 +1964,38 @@ class MazeUI:
             self.screen.blit(coord_surf, coord_rect)
         
         # Draw key commands help
-        help_text = "Keys: G=Generate | S=Solve | R=Reset View | Arrow Keys=Pan | +/- =Zoom"
+        help_text = "Keys: G=Generate | S=Solve | R=Reset View | Arrow Keys=Pan | +/- =Zoom | D=Draw Path"
         help_surf = self.font.render(help_text, True, self.theme["text"])
         help_rect = help_surf.get_rect(midbottom=(self.screen_width - SIDEBAR_WIDTH // 2, self.screen_height - 10))
         self.screen.blit(help_surf, help_rect)
+        
+        # Draw user path if in drawing mode
+        if hasattr(self, 'drawing_mode') and self.drawing_mode and hasattr(self, 'user_path') and self.user_path:
+            # Draw the user's path
+            for i in range(1, len(self.user_path)):
+                x1, y1 = self.user_path[i-1]
+                x2, y2 = self.user_path[i]
+                
+                # Convert to screen coordinates
+                screen_x1 = int((x1 * 2 + 1 - self.offset_x) * self.cell_size + self.cell_size // 2)
+                screen_y1 = int((y1 * 2 + 1 - self.offset_y) * self.cell_size + self.cell_size // 2)
+                screen_x2 = int((x2 * 2 + 1 - self.offset_x) * self.cell_size + self.cell_size // 2)
+                screen_y2 = int((y2 * 2 + 1 - self.offset_y) * self.cell_size + self.cell_size // 2)
+                
+                # Draw line with gradient color based on position in path
+                pos = i / len(self.user_path)
+                color = self._get_gradient_color([(255, 50, 50), (255, 200, 50)], pos)
+                
+                # Thicker line for visibility
+                line_width = max(3, self.cell_size // 3)
+                
+                # Draw line on main screen (not the maze surface)
+                pygame.draw.line(self.screen, color, (screen_x1, screen_y1), (screen_x2, screen_y2), line_width)
+                
+                # Add dot at each vertex
+                dot_radius = max(3, line_width // 2 + 2)
+                pygame.draw.circle(self.screen, color, (screen_x1, screen_y1), dot_radius)
+                pygame.draw.circle(self.screen, color, (screen_x2, screen_y2), dot_radius)
     
     def update(self) -> None:
         """Update the game state."""
@@ -1512,38 +2034,744 @@ class MazeUI:
         # Update the display
         pygame.display.flip()
     
-    def run(self) -> None:
-        """Run the maze UI."""
-        running = True
-        
-        while running:
-            # Handle events
-            running = self.handle_events()
+    def enable_path_drawing_mode(self) -> None:
+        """Enable path drawing mode."""
+        if self.generating or self.solving:
+            self.update_status("Cannot start drawing while generating or solving")
+            return
             
-            # Update game state
-            self.update()
-            
-            # Draw everything
-            self.draw()
-            
-            # Cap the frame rate
-            self.clock.tick(FPS)
-        
-        pygame.quit()
-
-
-def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(description="Run the Magnificent Maze UI.")
-    parser.add_argument('--width', type=int, default=DEFAULT_WIDTH, help=f'Window width (default: {DEFAULT_WIDTH})')
-    parser.add_argument('--height', type=int, default=DEFAULT_HEIGHT, help=f'Window height (default: {DEFAULT_HEIGHT})')
-    args = parser.parse_args()
+        self.drawing_mode = True
+        self.user_path = []
+        self.update_status("Drawing Mode: Click and drag to draw your path through the maze")
     
-    # Create and run the UI
-    ui = MazeUI(args.width, args.height)
-    ui.run()
+    def disable_path_drawing_mode(self) -> None:
+        """Disable path drawing mode."""
+        self.drawing_mode = False
+        self.user_path = []
+        self.update_status("Drawing mode canceled")
+    
+    def handle_path_drawing(self, mouse_pos) -> None:
+        """Handle drawing a path point at the given mouse position."""
+        # Convert mouse position to grid coordinates
+        canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+        if not canvas_rect.collidepoint(mouse_pos):
+            return  # Ignore if mouse is in sidebar
+            
+        cell_x = int(self.offset_x + mouse_pos[0] / self.cell_size)
+        cell_y = int(self.offset_y + mouse_pos[1] / self.cell_size)
+        
+        # Ensure we're on a cell, not a wall
+        if cell_x % 2 == 0 or cell_y % 2 == 0:
+            return
+        
+        # Convert to maze cell coordinates (not pixel/wall coordinates)
+        grid_x = cell_x // 2
+        grid_y = cell_y // 2
+        
+        # Add point to path if it's valid and not already in path
+        if 0 <= grid_x < self.maze_width and 0 <= grid_y < self.maze_height:
+            point = (grid_x, grid_y)
+            if not self.user_path or point != self.user_path[-1]:
+                self.user_path.append(point)
+                # No need to redraw the maze here, as we're drawing the path on top in _draw_ui
+    
+    def generate_maze_from_path(self) -> None:
+        """Generate a maze that incorporates the user-drawn path."""
+        if not self.user_path or len(self.user_path) < 2:
+            self.update_status("Path is too short. Please draw a longer path.")
+            return
+        
+        # First verify that the path starts at an entry point and ends at an exit point
+        # For simplicity, we'll assume entry is left edge and exit is right edge
+        start_point = self.user_path[0]
+        end_point = self.user_path[-1]
+        
+        valid_entry = start_point[0] == 0
+        valid_exit = end_point[0] == self.maze_width - 1
+        
+        if not valid_entry or not valid_exit:
+            self.update_status("Path must start at left edge and end at right edge.")
+            return
+        
+        self.update_status("Generating maze from your path...")
+        self.drawing_mode = False
+        self.generating = True
+        self.show_solution = False
+        self.current_step = 0
+        
+        # Create a custom maze with the user path
+        self.maze = CustomPathMaze(self.maze_width, self.maze_height, self.user_path, 
+                                 self.algorithm, self.density, self.section_size)
+        
+        # Generate the maze
+        self.maze.generate()
+        
+        # Store generation steps for animation
+        self.generation_steps = self.maze.generation_steps
+        
+        # Initialize solver
+        self.solver = MazeSolver(self.maze.maze)
+        
+        # Reset view for new maze
+        self.reset_view()
+        
+        self.update_status(f"Maze generated with your custom path in {self.maze.generation_time:.3f} seconds!")
+    
+    def handle_events(self) -> bool:
+        """Handle pygame events."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            
+            elif event.type == pygame.VIDEORESIZE:
+                self.screen_width = event.w
+                self.screen_height = event.h
+                self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                self._init_ui()
+                self._redraw_maze()
+            
+            elif event.type == pygame.MOUSEMOTION:
+                self.mouse_pos = event.pos
+                
+                # Handle UI element hover
+                for button in self.buttons:
+                    button["hover"] = button["rect"].collidepoint(event.pos)
+                
+                # Handle path drawing if in drawing mode
+                if hasattr(self, 'drawing_mode') and self.drawing_mode and pygame.mouse.get_pressed()[0]:
+                    self.handle_path_drawing(event.pos)
+                
+                # Handle dragging for pan (if not in drawing mode)
+                elif self.dragging and not (hasattr(self, 'drawing_mode') and self.drawing_mode):
+                    dx = (event.pos[0] - self.drag_start[0]) / self.cell_size
+                    dy = (event.pos[1] - self.drag_start[1]) / self.cell_size
+                    self.offset_x -= dx
+                    self.offset_y -= dy
+                    self.drag_start = event.pos
+                    self._constrain_offset()
+                    self._redraw_maze()
+                
+                # Handle slider dragging
+                if self.active_element and "min" in self.active_element:
+                    slider = self.active_element
+                    # Calculate value based on mouse position
+                    slider_width = slider["rect"].width - 20  # Subtract handle width
+                    relative_x = max(0, min(slider_width, event.pos[0] - slider["rect"].x))
+                    value = slider["min"] + (relative_x / slider_width) * (slider["max"] - slider["min"])
+                    
+                    # Update slider value and handle position
+                    slider["value"] = value
+                    slider["handle_rect"].x = slider["rect"].x + relative_x
+                    
+                    # Call action
+                    slider["action"](value)
+            
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left mouse button
+                    # Check for button clicks
+                    for button in self.buttons:
+                        if button["rect"].collidepoint(event.pos):
+                            button["action"]()
+                            break
+                    
+                    # Check for slider interaction
+                    for slider in self.sliders:
+                        if slider["handle_rect"].collidepoint(event.pos) or slider["rect"].collidepoint(event.pos):
+                            self.active_element = slider
+                            slider["active"] = True
+                            
+                            # Update slider position immediately
+                            slider_width = slider["rect"].width - 20
+                            relative_x = max(0, min(slider_width, event.pos[0] - slider["rect"].x))
+                            value = slider["min"] + (relative_x / slider_width) * (slider["max"] - slider["min"])
+                            
+                            slider["value"] = value
+                            slider["handle_rect"].x = slider["rect"].x + relative_x
+                            
+                            slider["action"](value)
+                            break
+                    
+                    # Handle dragging for pan (if not on UI element and not in drawing mode)
+                    canvas_rect = pygame.Rect(0, 0, self.screen_width - SIDEBAR_WIDTH, self.screen_height)
+                    if (canvas_rect.collidepoint(event.pos) and not self.active_element and 
+                        not (hasattr(self, 'drawing_mode') and self.drawing_mode)):
+                        self.dragging = True
+                        self.drag_start = event.pos
+                
+                elif event.button == 4:  # Mouse wheel up (zoom in)
+                    self.set_cell_size(self.cell_size + 2)
+                
+                elif event.button == 5:  # Mouse wheel down (zoom out)
+                    self.set_cell_size(self.cell_size - 2)
+            
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:  # Left mouse button
+                    self.dragging = False
+                    
+                    if self.active_element:
+                        self.active_element["active"] = False
+                        self.active_element = None
+            
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    # If in drawing mode, exit it
+                    if hasattr(self, 'drawing_mode') and self.drawing_mode:
+                        self.disable_path_drawing_mode()
+                    else:
+                        return False
+                
+                elif event.key == pygame.K_g:
+                    if not hasattr(self, 'drawing_mode') or not self.drawing_mode:
+                        self.generate_maze()
+                
+                elif event.key == pygame.K_s:
+                    if not hasattr(self, 'drawing_mode') or not self.drawing_mode:
+                        self.solve_maze()
+                
+                elif event.key == pygame.K_r:
+                    if not hasattr(self, 'drawing_mode') or not self.drawing_mode:
+                        self.reset_view()
+                
+                elif event.key == pygame.K_d:
+                    # Toggle drawing mode
+                    if hasattr(self, 'drawing_mode') and self.drawing_mode:
+                        self.disable_path_drawing_mode()
+                    else:
+                        self.enable_path_drawing_mode()
+                
+                elif event.key == pygame.K_RETURN:
+                    # Generate maze from path if in drawing mode
+                    if hasattr(self, 'drawing_mode') and self.drawing_mode:
+                        self.generate_maze_from_path()
+                
+                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                    self.set_cell_size(self.cell_size + 2)
+                
+                elif event.key == pygame.K_MINUS:
+                    self.set_cell_size(self.cell_size - 2)
+                
+                elif event.key in [pygame.K_UP, pygame.K_w]:
+                    self.offset_y -= 5
+                    self._constrain_offset()
+                    self._redraw_maze()
+                
+                elif event.key in [pygame.K_DOWN, pygame.K_s]:
+                    self.offset_y += 5
+                    self._constrain_offset()
+                    self._redraw_maze()
+                
+                elif event.key in [pygame.K_LEFT, pygame.K_a]:
+                    self.offset_x -= 5
+                    self._constrain_offset()
+                    self._redraw_maze()
+                
+                elif event.key in [pygame.K_RIGHT, pygame.K_d]:
+                    self.offset_x += 5
+                    self._constrain_offset()
+                    self._redraw_maze()
+        
+        return True
+    
+    def _init_ui(self):
+        """Initialize UI elements."""
+        # Clear existing elements
+        self.buttons = []
+        self.sliders = []
+        
+        # Calculate positions
+        canvas_width = self.screen_width - SIDEBAR_WIDTH
+        sidebar_x = canvas_width
+        y_offset = 20
+        
+        # Title
+        self.title_rect = pygame.Rect(sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 40)
+        y_offset += 50
+        
+        # Algorithm selection
+        self.add_button("Eller's Algorithm", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        lambda: self.set_algorithm(MazeAlgorithm.ELLERS))
+        y_offset += 40
+        self.add_button("Recursive Backtracker", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        lambda: self.set_algorithm(MazeAlgorithm.BACKTRACKER))
+        y_offset += 40
+        self.add_button("Hybrid Algorithm", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        lambda: self.set_algorithm(MazeAlgorithm.HYBRID))
+        y_offset += 50
+        
+        # Maze dimensions
+        self.add_slider("Width", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30, 
+                        10, 100, self.maze_width, lambda v: self.set_maze_width(int(v)))
+        y_offset += 50
+        self.add_slider("Height", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        10, 100, self.maze_height, lambda v: self.set_maze_height(int(v)))
+        y_offset += 50
+        
+        # Density (for Eller's and Hybrid)
+        self.add_slider("Density", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        0.1, 0.9, self.density, lambda v: self.set_density(v))
+        y_offset += 50
+        
+        # Section size (for Hybrid)
+        self.add_slider("Section Size", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        3, 20, self.section_size, lambda v: self.set_section_size(int(v)))
+        y_offset += 50
+        
+        # Animation speed
+        self.add_slider("Animation Speed", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        1, 50, self.animation_speed, lambda v: self.set_animation_speed(int(v)))
+        y_offset += 50
+        
+        # Theme selection
+        self.theme_rect = pygame.Rect(sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30)
+        theme_names = MazeTheme.get_theme_names()
+        theme_buttons_width = (SIDEBAR_WIDTH - 20) // len(theme_names)
+        
+        for i, theme_name in enumerate(theme_names):
+            self.add_button(theme_name[:1], 
+                           sidebar_x + 10 + i * theme_buttons_width, 
+                           y_offset, 
+                           theme_buttons_width, 30,
+                           lambda tn=theme_name: self.set_theme(tn))
+        y_offset += 50
+        
+        # Action buttons
+        self.add_button("Generate", sidebar_x + 10, y_offset, (SIDEBAR_WIDTH - 30) // 2, 40,
+                        self.generate_maze)
+        self.add_button("Solve", sidebar_x + 20 + (SIDEBAR_WIDTH - 30) // 2, y_offset, 
+                       (SIDEBAR_WIDTH - 30) // 2, 40, self.solve_maze)
+        y_offset += 50
+        
+        # Draw Path button
+        self.add_button("Draw Path", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 40,
+                       self.enable_path_drawing_mode)
+        y_offset += 50
+        
+        # Zoom controls
+        self.add_button("Zoom In", sidebar_x + 10, y_offset, (SIDEBAR_WIDTH - 30) // 2, 30,
+                        lambda: self.set_cell_size(self.cell_size + 2))
+        self.add_button("Zoom Out", sidebar_x + 20 + (SIDEBAR_WIDTH - 30) // 2, y_offset,
+                       (SIDEBAR_WIDTH - 30) // 2, 30, lambda: self.set_cell_size(self.cell_size - 2))
+        y_offset += 50
+        
+        # Reset view
+        self.add_button("Reset View", sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 30,
+                        self.reset_view)
+        y_offset += 50
+        
+        # Save/Export
+        self.add_button("Save as PNG", sidebar_x + 10, y_offset, (SIDEBAR_WIDTH - 30) // 2, 30,
+                        lambda: self.save_maze("png"))
+        self.add_button("Save as TXT", sidebar_x + 20 + (SIDEBAR_WIDTH - 30) // 2, y_offset,
+                       (SIDEBAR_WIDTH - 30) // 2, 30, lambda: self.save_maze("txt"))
+        y_offset += 60
+        
+        # Status area
+        self.status_rect = pygame.Rect(sidebar_x + 10, y_offset, SIDEBAR_WIDTH - 20, 100)
+        
+        # Initialize drawing mode state if it doesn't exist
+        if not hasattr(self, 'drawing_mode'):
+            self.drawing_mode = False
+            self.user_path = []
 
 
-if __name__ == "__main__":
-    main()
-
+# Add the CustomPathMaze class for generating mazes with user-defined paths
+class CustomPathMaze(BaseMaze):
+    """Maze generator that incorporates a user-defined path."""
+    
+    def __init__(self, width: int, height: int, path: List[Tuple[int, int]], 
+                algorithm: MazeAlgorithm, density: float = 0.5, section_size: int = 5):
+        """Initialize the custom path maze generator."""
+        super().__init__(width, height)
+        self.path = path
+        self.algorithm = algorithm
+        self.density = density
+        self.section_size = section_size
+    
+    def generate(self) -> List[List[str]]:
+        """Generate a maze that incorporates the user-defined path."""
+        start_time = time.time()
+        
+        # Initialize with a grid of all walls
+        self.maze = [['#' for _ in range(self.maze_width)] for _ in range(self.maze_height)]
+        self.generation_steps = []
+        
+        # First, create the user-defined path
+        self._create_user_path()
+        
+        # Save initial state with user path
+        self.generation_steps.append([row[:] for row in self.maze])
+        
+        # Now generate the rest of the maze around the path
+        if self.algorithm == MazeAlgorithm.ELLERS:
+            self._generate_around_path_eller()
+        elif self.algorithm == MazeAlgorithm.BACKTRACKER:
+            self._generate_around_path_backtracker()
+        else:  # Hybrid
+            self._generate_around_path_hybrid()
+        
+        self.create_entrance_exit()
+        
+        # Save final state
+        self.generation_steps.append([row[:] for row in self.maze])
+        
+        self.generation_time = time.time() - start_time
+        return self.maze
+    
+    def _create_user_path(self) -> None:
+        """Create the initial path based on user input."""
+        # First create cells at all path points
+        for x, y in self.path:
+            self.maze[2*y+1][2*x+1] = ' '
+        
+        # Then connect adjacent points
+        for i in range(len(self.path) - 1):
+            x1, y1 = self.path[i]
+            x2, y2 = self.path[i+1]
+            
+            # Only allow orthogonally adjacent points
+            dx = x2 - x1
+            dy = y2 - y1
+            
+            # For simplicity, we'll only handle immediate neighbors
+            if abs(dx) + abs(dy) == 1:
+                # Remove the wall between cells
+                wall_x = 2*x1 + 1 + dx
+                wall_y = 2*y1 + 1 + dy
+                self.maze[wall_y][wall_x] = ' '
+            else:
+                # For non-adjacent points, create a straight path between them
+                steps = max(abs(dx), abs(dy))
+                for step in range(1, steps + 1):
+                    # Calculate intermediate position
+                    t = step / steps
+                    ix = int(x1 + dx * t)
+                    iy = int(y1 + dy * t)
+                    
+                    # Create cell at this position
+                    self.maze[2*iy+1][2*ix+1] = ' '
+                    
+                    # Connect to previous cell
+                    if step > 1:
+                        prev_x = int(x1 + dx * (step - 1) / steps)
+                        prev_y = int(y1 + dy * (step - 1) / steps)
+                        
+                        wall_x = 2*prev_x + 1 + (1 if ix > prev_x else (-1 if ix < prev_x else 0))
+                        wall_y = 2*prev_y + 1 + (1 if iy > prev_y else (-1 if iy < prev_y else 0))
+                        
+                        self.maze[wall_y][wall_x] = ' '
+    
+    def _generate_around_path_eller(self) -> None:
+        """Generate the rest of the maze using Eller's algorithm while preserving the user path."""
+        # Create a grid that marks which cells are already part of the path
+        path_cells = set()
+        for x, y in self.path:
+            path_cells.add((x, y))
+        
+        # Process each row
+        row = [i for i in range(self.width)]  # Each cell starts in its own set
+        next_set = self.width
+        
+        # Initialize sets based on user path connections
+        for y in range(self.height):
+            # Check horizontal connections in this row
+            for x in range(self.width - 1):
+                # If cells are already connected in the user path, merge their sets
+                if (self.maze[2*y+1][2*x+2] == ' '):
+                    # Cells are connected, merge their sets
+                    old_set = row[x+1]
+                    new_set = row[x]
+                    for i in range(self.width):
+                        if row[i] == old_set:
+                            row[i] = new_set
+            
+            # Save current state for animation
+            self.generation_steps.append([row[:] for row in self.maze])
+            
+            # Randomly connect remaining cells in the row
+            for x in range(self.width - 1):
+                # Only connect if cells are in different sets and not part of the user path
+                if (row[x] != row[x+1] and random.random() < self.density and
+                    self.maze[2*y+1][2*x+2] == '#'):  # Wall exists (not part of user path)
+                    
+                    # Remove the wall between cells
+                    self.maze[2*y+1][2*x+2] = ' '
+                    
+                    # Merge sets
+                    old_set = row[x+1]
+                    new_set = row[x]
+                    for i in range(self.width):
+                        if row[i] == old_set:
+                            row[i] = new_set
+                    
+                    # Save state after each horizontal connection
+                    self.generation_steps.append([row[:] for row in self.maze])
+            
+            # Last row connects all different sets horizontally
+            if y == self.height - 1:
+                for x in range(self.width - 1):
+                    if row[x] != row[x+1]:
+                        # Remove the wall between cells
+                        self.maze[2*y+1][2*x+2] = ' '
+                        # Save state
+                        self.generation_steps.append([row[:] for row in self.maze])
+                continue
+            
+            # Group cells by set
+            sets = {}
+            for x, set_id in enumerate(row):
+                if set_id not in sets:
+                    sets[set_id] = []
+                sets[set_id].append(x)
+            
+            # Initialize the next row with all cells in their own set
+            next_row = [-1] * self.width
+            
+            # Check for existing vertical connections from the user path
+            for x in range(self.width):
+                if self.maze[2*y+2][2*x+1] == ' ':  # Vertical connection exists
+                    next_row[x] = row[x]  # Pass the set ID to the cell below
+            
+            # For each set, randomly connect some cells to the row below
+            for set_id, cells in sets.items():
+                # Filter out cells that are already connected from user path
+                unconnected_cells = [x for x in cells if next_row[x] == -1]
+                
+                if unconnected_cells:
+                    # Connect at least one cell from each set
+                    vertical_density = max(1, int(len(unconnected_cells) * (1 - self.density) + 0.5))
+                    connect_count = max(1, min(len(unconnected_cells), vertical_density))
+                    cells_to_connect = random.sample(unconnected_cells, connect_count)
+                    
+                    for x in cells_to_connect:
+                        # Remove the wall below the cell
+                        self.maze[2*y+2][2*x+1] = ' '
+                        
+                        # Pass the set ID to the cell below
+                        next_row[x] = set_id
+                        
+                        # Save state after each vertical connection
+                        self.generation_steps.append([row[:] for row in self.maze])
+            
+            # Assign new set IDs to unconnected cells in the next row
+            for x in range(self.width):
+                if next_row[x] == -1:
+                    next_row[x] = next_set
+                    next_set += 1
+            
+            # Update the current row for the next iteration
+            row = next_row
+    
+    def _generate_around_path_backtracker(self) -> None:
+        """Generate the rest of the maze using Recursive Backtracker while preserving the user path."""
+        # Create a set of all cells in the path
+        path_cells = set()
+        for x, y in self.path:
+            path_cells.add((x, y))
+        
+        # Create a set of all cells that have been visited (including path cells)
+        visited = set(path_cells)
+        
+        # Find cells that are part of the path and have open passages
+        frontier = []
+        for x, y in path_cells:
+            # Check if this cell has any walls that can be carved
+            has_unvisited_neighbor = False
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:  # North, East, South, West
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.width and 0 <= ny < self.height and (nx, ny) not in visited:
+                    has_unvisited_neighbor = True
+                    break
+            
+            if has_unvisited_neighbor:
+                frontier.append((x, y))
+        
+        # If no frontier cells, pick any unvisited cell
+        if not frontier and len(visited) < self.width * self.height:
+            for y in range(self.height):
+                for x in range(self.width):
+                    if (x, y) not in visited:
+                        # Create cell and add to frontier
+                        self.maze[2*y+1][2*x+1] = ' '
+                        frontier.append((x, y))
+                        visited.add((x, y))
+                        break
+                if frontier:
+                    break
+        
+        # Now perform recursive backtracking from the frontier cells
+        while frontier:
+            # Get the current cell
+            x, y = frontier[-1]
+            
+            # Mark current cell for visualization
+            current_maze = [row[:] for row in self.maze]
+            current_maze[2*y+1][2*x+1] = 'C'  # Mark current cell
+            self.generation_steps.append(current_maze)
+            
+            # Find unvisited neighbors
+            neighbors = []
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:  # North, East, South, West
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.width and 0 <= ny < self.height and (nx, ny) not in visited:
+                    neighbors.append((nx, ny, dx, dy))
+            
+            if neighbors:
+                # Choose a random unvisited neighbor
+                nx, ny, dx, dy = random.choice(neighbors)
+                
+                # Create the cell
+                self.maze[2*ny+1][2*nx+1] = ' '
+                
+                # Remove the wall between current cell and chosen neighbor
+                self.maze[2*y+1+dy][2*x+1+dx] = ' '
+                
+                # Add to frontier and mark as visited
+                frontier.append((nx, ny))
+                visited.add((nx, ny))
+            else:
+                # Backtrack if no unvisited neighbors
+                frontier.pop()
+                
+                # Save state after backtracking
+                if frontier:
+                    x, y = frontier[-1]
+                    current_maze = [row[:] for row in self.maze]
+                    current_maze[2*y+1][2*x+1] = 'B'  # Mark backtracking cell
+                    self.generation_steps.append(current_maze)
+    
+    def _generate_around_path_hybrid(self) -> None:
+        """Generate the rest of the maze using the Hybrid algorithm while preserving the user path."""
+        # First generate using Eller's algorithm
+        self._generate_around_path_eller()
+        
+        # Then rework random sections using backtracker
+        sections_x = self.width // self.section_size
+        sections_y = self.height // self.section_size
+        
+        for _ in range(max(1, min(10, sections_x * sections_y // 3))):
+            # Choose a random section
+            section_x = random.randint(0, max(0, sections_x - 1))
+            section_y = random.randint(0, max(0, sections_y - 1))
+            
+            # Apply recursive backtracker to the section
+            start_x = section_x * self.section_size
+            start_y = section_y * self.section_size
+            end_x = min(start_x + self.section_size, self.width)
+            end_y = min(start_y + self.section_size, self.height)
+            
+            # Skip sections that heavily overlap with the user path
+            path_cells_in_section = sum(1 for x, y in self.path 
+                                      if start_x <= x < end_x and start_y <= y < end_y)
+            section_area = (end_x - start_x) * (end_y - start_y)
+            
+            if path_cells_in_section / section_area < 0.3:  # Less than 30% overlap
+                # Highlight the section being reworked
+                highlight_maze = [row[:] for row in self.maze]
+                for y in range(start_y, end_y):
+                    for x in range(start_x, end_x):
+                        if highlight_maze[2*y+1][2*x+1] == ' ':
+                            highlight_maze[2*y+1][2*x+1] = 'H'  # Highlight cell
+                self.generation_steps.append(highlight_maze)
+                
+                self._rework_section_preserving_path(start_x, start_y, end_x, end_y)
+    
+    def _rework_section_preserving_path(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
+        """Rework a section while preserving the user path."""
+        # Create a set of cells that are part of the user path
+        path_cells = set()
+        path_walls = set()
+        
+        for i in range(len(self.path)):
+            x, y = self.path[i]
+            if start_x <= x < end_x and start_y <= y < end_y:
+                path_cells.add((x, y))
+                
+                # If there's a next cell in the path, mark the wall between them
+                if i < len(self.path) - 1:
+                    nx, ny = self.path[i+1]
+                    if abs(nx - x) + abs(ny - y) == 1:  # Adjacent cells
+                        wall_x = 2*x + 1 + (nx - x)
+                        wall_y = 2*y + 1 + (ny - y)
+                        path_walls.add((wall_x, wall_y))
+        
+        # Reset the section to walls except for the cells
+        for y in range(start_y, end_y):
+            for x in range(start_x, end_x):
+                # Keep cells
+                self.maze[2*y+1][2*x+1] = ' '
+                
+                # Reset walls unless they're part of the path
+                if x < end_x - 1:
+                    wall_pos = (2*x+2, 2*y+1)
+                    if wall_pos not in path_walls:
+                        self.maze[wall_pos[1]][wall_pos[0]] = '#'
+                
+                if y < end_y - 1:
+                    wall_pos = (2*x+1, 2*y+2)
+                    if wall_pos not in path_walls:
+                        self.maze[wall_pos[1]][wall_pos[0]] = '#'
+        
+        # Save state after section reset
+        self.generation_steps.append([row[:] for row in self.maze])
+        
+        # Apply recursive backtracker to the section
+        stack = []
+        visited = set(path_cells)  # Start with path cells already visited
+        
+        # Start at a random cell in the path if possible, otherwise any cell
+        if path_cells:
+            x, y = random.choice(list(path_cells))
+            stack.append((x, y))
+        else:
+            x = random.randint(start_x, end_x - 1)
+            y = random.randint(start_y, end_y - 1)
+            stack.append((x, y))
+            visited.add((x, y))
+        
+        while stack:
+            x, y = stack[-1]
+            
+            # Mark current cell for visualization
+            current_maze = [row[:] for row in self.maze]
+            current_maze[2*y+1][2*x+1] = 'C'  # Mark current cell
+            self.generation_steps.append(current_maze)
+            
+            # Find unvisited neighbors within the section
+            neighbors = []
+            for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (start_x <= nx < end_x and start_y <= ny < end_y and 
+                    (nx, ny) not in visited):
+                    neighbors.append((nx, ny, dx, dy))
+            
+            if neighbors:
+                nx, ny, dx, dy = random.choice(neighbors)
+                
+                # Check if the wall is part of the path
+                wall_x = 2*x + 1 + dx
+                wall_y = 2*y + 1 + dy
+                
+                if (wall_x, wall_y) not in path_walls:
+                    # Remove the wall
+                    self.maze[wall_y][wall_x] = ' '
+                
+                stack.append((nx, ny))
+                visited.add((nx, ny))
+                
+                # Save state after carving a passage
+                self.generation_steps.append([row[:] for row in self.maze])
+            else:
+                stack.pop()
+                
+                # Save state after backtracking
+                if stack:
+                    x, y = stack[-1]
+                    current_maze = [row[:] for row in self.maze]
+                    current_maze[2*y+1][2*x+1] = 'B'  # Mark backtracking cell
+                    self.generation_steps.append(current_maze)
+        
+        # Clean up temporary cell markers
+        for y in range(start_y, end_y):
+            for x in range(start_x, end_x):
+                if self.maze[2*y+1][2*x+1] in ['C', 'B', 'H']:
+                    self.maze[2*y+1][2*x+1] = ' '
