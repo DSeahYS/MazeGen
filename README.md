@@ -17,6 +17,9 @@ An advanced maze generator and solver with beautiful visualizations and multiple
 ## How to Run
 Run the Python file and explore :)
 
+## Ongoing works
+When creating via cursor, the overlay may be stuck
+
 ## Demonstration
 ![image](https://github.com/user-attachments/assets/c22a4af9-984d-4e99-9626-49600cb4e857)
 ![image](https://github.com/user-attachments/assets/eb48dfe3-6417-48a2-8742-e04a0caad8b9)
