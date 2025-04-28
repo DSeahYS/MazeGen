@@ -1,4 +1,4 @@
-# Magnificent Maze Generator
+# Maze Generator
 
 An advanced maze generator and solver with beautiful visualizations and multiple algorithms.
 
